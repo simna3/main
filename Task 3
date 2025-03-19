@@ -1,0 +1,47 @@
+from prefect import flow, task
+import pandas as pd
+from datetime import timedelta
+from prefect.task_runners import SequentialTaskRunner
+from prefect.deployments import Deployment
+from prefect.server.schemas.schedules import IntervalSchedule
+
+@task(retries=3, retry_delay_seconds=5)
+def extract(file_path: str) -> pd.DataFrame:
+    """Extract data from a CSV file."""
+    df = pd.read_csv(file_path)
+    return df
+
+@task
+def transform(df: pd.DataFrame) -> pd.DataFrame:
+    """Perform basic data transformations."""
+    df.dropna(inplace=True)
+    df["processed_value"] = df["value"] * 2  # Example transformation
+    return df
+
+@task
+def load(df: pd.DataFrame, output_path: str):
+    """Load transformed data into a new CSV file."""
+    df.to_csv(output_path, index=False)
+    print(f"Data loaded to {output_path}")
+
+@flow(task_runner=SequentialTaskRunner())
+def etl_pipeline():
+    """ETL Flow to extract, transform, and load data."""
+    file_path = "input_data.csv"
+    output_path = "output_data.csv"
+    
+    data = extract(file_path)
+    transformed_data = transform(data)
+    load(transformed_data, output_path)
+
+# Schedule the flow to run every day
+daily_schedule = IntervalSchedule(interval=timedelta(days=1))
+
+deployment = Deployment.build_from_flow(
+    flow=etl_pipeline,
+    name="daily_etl_pipeline",
+    schedule=daily_schedule,
+)
+
+if __name__ == "__main__":
+    etl_pipeline()
